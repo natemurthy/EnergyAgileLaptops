@@ -1,0 +1,80 @@
+% isolate individual days
+summer=csvread('fatspaniel-summer-matlabsafe.csv');
+winter=csvread('fatspaniel-winter-matlabsafe.csv');
+
+%input=summer;
+%input=winter;
+all_PV=zeros(96,120);
+
+col=1;
+
+while (col <= 60)
+    row=1;
+    colMod=mod(col-1,12)+1;
+    while (row <= 480)
+        rowMod=mod(row-1,96)+1;
+        all_PV(rowMod,col)=summer(row,colMod);
+        row=row+1;
+    end
+    col=col+1;
+end
+
+if (col==61)
+    while (col <= 120)
+        row=1;
+        colMod=mod(col-61,12)+1;
+        while (row <= 480)
+            rowMod=mod(row-1,96)+1;
+            all_PV(rowMod,col)=winter(row,colMod);
+            row=row+1;
+        end
+        col=col+1;
+    end
+end
+
+Y = [1, 5, 3;
+	3, 2, 7;
+	1, 5, 3;
+	2, 6, 1];
+area(Y)
+grid on
+colormap summer
+set(gca,'Layer','top')
+title 'Stacked Area Plot'
+
+sum(poissonAll{1}(2,:))-sum(poissonAll{1}(1,:))
+
+for k=1:120
+    total=zeros(1,96);
+    for t=1:95
+        total(1)=(poissonAll{k}(1,1)-poissonAll{k}(2,1));
+        total(t+1)=total(t)+(poissonAll{k}(1,t+1)-poissonAll{k}(2,t+1));
+        if total(t+1) <= 0
+            total(t+1)=0;
+        end
+    end
+    clf; plot(50*total,'LineWidth',2); hold on; plot(solarTraces(:,k)','Color','r','LineWidth',2);
+    pause(1);
+end
+
+%zscore
+x=0:.04:1; y=x;
+[xx,yy]=meshgrid(x,y);
+zz = (1-yy)*exp(-3*xx);
+surf(xx,yy,zz);
+
+% moving averages
+movingAvgSolarTraces_1hr=zeros(96,120); % prediction
+for r=1:120
+    movingAvgSolarTraces_1hr(:,r)=smooth(solarTraces(:,r),4);
+end
+
+movingAvgSolarTraces_2hr=zeros(96,120); % volatility benchmark
+for r=1:120
+    movingAvgSolarTraces_2hr(:,r)=smooth(solarTraces(:,r),8);
+end
+
+% calculate unscaled IMV
+for r=1:120
+    for s=1:96
+        

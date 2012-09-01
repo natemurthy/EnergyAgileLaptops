@@ -1,0 +1,213 @@
+classdef Laptop
+    properties
+        type                % str: type of laptop PC or Mac
+        chargeTrace         % 2 x chargeTime matrix: mAh (Row 1), watts (Row 2)
+        dischargeTrace      % 2 x dischargeTime matrix: maAH (Row 1), watts (Row 2)
+        chargeTime          % number of minutes to fully charge empty battery
+        dischargeTime       % number of minutes to completely discharge full batt
+        chargeTimeLeft      % time left to fully charge
+        dischargeTimeLeft   % time left to fully discharge
+        isCharging          % boolean yes or no
+        currCapacity        % current battery capacity
+        currPower           % current power consumption
+        currTraceIndex      % current trace index
+    end
+    methods
+        function obj = Laptop(type, chargeTrace, dischargeTrace, isCharging)
+            obj.type = type;
+            obj.chargeTrace = chargeTrace;
+            obj.dischargeTrace = dischargeTrace;
+            obj.chargeTime=length(chargeTrace);
+            obj.dischargeTime=length(dischargeTrace);
+            obj.isCharging = isCharging;
+            if (obj.isCharging)
+                initialCurrTraceIndex = floor(1+(length(chargeTrace)-1).*rand(1));
+                obj.currCapacity = chargeTrace(1,initialCurrTraceIndex);
+                obj.currPower = chargeTrace(2,initialCurrTraceIndex);
+                obj.currTraceIndex = initialCurrTraceIndex;
+                obj.chargeTimeLeft = obj.chargeTime-initialCurrTraceIndex;
+            else
+                initialCurrTraceIndex = floor(1+(length(dischargeTrace)-1).*rand(1));
+                obj.currCapacity = dischargeTrace(1,initialCurrTraceIndex);
+                obj.currPower = dischargeTrace(2,initialCurrTraceIndex);
+                obj.currTraceIndex = initialCurrTraceIndex;
+                obj.dischargeTimeLeft = obj.dischargeTime-initialCurrTraceIndex;
+            end
+        end
+        
+        function obj = stepLaptop(obj,nMinutes)
+            if (obj.isCharging)
+                % charge -> charge
+                obj.currTraceIndex = obj.currTraceIndex + nMinutes;
+                if obj.currTraceIndex > obj.chargeTime
+                    obj.currTraceIndex = obj.chargeTime;
+                end
+                obj.currCapacity = obj.chargeTrace(1,obj.currTraceIndex);
+                obj.currPower = obj.chargeTrace(2,obj.currTraceIndex);
+                obj.chargeTimeLeft = obj.chargeTime - obj.currTraceIndex;
+            else
+                % discharge -> discharge
+                obj.currTraceIndex = obj.currTraceIndex + nMinutes;
+                if obj.currTraceIndex > obj.dischargeTime;
+                    obj.currTraceIndex = obj.dischargeTime;
+                end
+                obj.currCapacity = obj.dischargeTrace(1,obj.currTraceIndex);
+                obj.currPower = obj.dischargeTrace(2,obj.currTraceIndex);
+                obj.dischargeTimeLeft = obj.dischargeTime - obj.currTraceIndex;
+            end   
+        end
+        
+        function obj = translateLaptop(obj,stateTransition)
+            if strcmp(stateTransition,'c->d')
+                % charge -> discharge
+                obj.currTraceIndex = translateIndex(obj,'c->d'); 
+                if obj.currTraceIndex > obj.dischargeTime;
+                    obj.currTraceIndex = obj.dischargeTime;
+                end
+                obj.currCapacity = obj.dischargeTrace(1,obj.currTraceIndex);
+                obj.currPower = obj.dischargeTrace(2,obj.currTraceIndex);
+                obj.chargeTimeLeft=[];
+                obj.dischargeTimeLeft = obj.dischargeTime - obj.currTraceIndex;
+                obj.isCharging=false;
+            end
+            if strcmp(stateTransition,'d->c')
+                % discharge -> charge
+                obj.currTraceIndex = translateIndex(obj,'d->c'); % bug: mac full discharge to charge, empty params
+                if obj.currTraceIndex > obj.chargeTime
+                    obj.currTraceIndex = obj.chargeTime;
+                end
+                obj.currCapacity = obj.chargeTrace(1,obj.currTraceIndex);
+                obj.currPower = obj.chargeTrace(2,obj.currTraceIndex);
+                obj.chargeTimeLeft = obj.chargeTime - obj.currTraceIndex;
+                obj.dischargeTimeLeft=[];
+                obj.isCharging=true;
+            end
+        end
+        
+        function newIndex = translateIndex(obj,stateTransition)
+            if strcmp(stateTransition,'d->c')
+                oldIndex=obj.currTraceIndex;
+                if oldIndex==length(obj.dischargeTrace)
+                    oldIndex=oldIndex-1;
+                end
+                lowerBoundCapacity=obj.currCapacity-100;
+                upperBoundCapacity=obj.currCapacity+100;
+                searchResult=find(obj.chargeTrace(1,:)>lowerBoundCapacity & obj.chargeTrace(1,:)<upperBoundCapacity);
+                if (length(searchResult)~=1 && ~isempty(searchResult))
+                    dist=zeros(2,length(searchResult));
+                    q=1;
+                    for p=min(searchResult):max(searchResult)
+                        dist(1,q)=abs(obj.chargeTrace(1,p)-obj.dischargeTrace(1,oldIndex));
+                        dist(2,q)=searchResult(q);
+                        q=q+1;
+                    end
+                    searchResult=dist(2,find(dist(1,:)==min(dist(1,:))));
+                end
+            end
+            if strcmp(stateTransition,'c->d')
+                oldIndex=obj.currTraceIndex;
+                if oldIndex==length(obj.chargeTrace)
+                    oldIndex=oldIndex-1;
+                end
+                lowerBoundCapacity=obj.currCapacity-100;
+                upperBoundCapacity=obj.currCapacity+100;
+                searchResult=find(obj.dischargeTrace(1,:)>lowerBoundCapacity & obj.dischargeTrace(1,:)<upperBoundCapacity);
+                if (length(searchResult)~=1 && ~isempty(searchResult))
+                    dist=zeros(2,length(searchResult));
+                    q=1;
+                    for p=min(searchResult):max(searchResult)
+                        dist(1,q)=abs(obj.dischargeTrace(1,p)-obj.chargeTrace(1,oldIndex));
+                        dist(2,q)=searchResult(q);
+                        q=q+1;
+                    end
+                    searchResult=dist(2,find(dist(1,:)==min(dist(1,:))));
+                end
+            end
+            newIndex=searchResult;
+        end
+        
+        function zscore = getZscore(obj)
+            maxCapacity = obj.chargeTrace(1,obj.chargeTime);
+            maxPower = obj.chargeTrace(2,1);
+            if (obj.isCharging)
+                value = (obj.currPower/maxPower)*exp(-3*obj.currCapacity/maxCapacity);
+            else
+                projectedPower = getProjectedPower(obj);
+                value = (projectedPower/maxPower)*exp(-3*obj.currCapacity/maxCapacity);
+            end
+            zscore = value;
+        end
+        
+        % getters and setters
+        function value = getType(obj)
+            value = obj.type;
+        end
+        function value = getChargeTrace(obj)
+            value = obj.chargeTrace;
+        end
+        function value = getDischargeTrace(obj)
+            value = obj.dischargeTrace;
+        end
+        function value = getChargeTime(obj)
+            value = obj.chargeTime;
+        end
+        function value = getDischargeTime(obj)
+            value = obj.dischargeTime;
+        end
+        function value = getChargeTimeLeft(obj)
+            value = obj.chargeTimeLeft;
+        end
+        function value = getDischargeTimeLeft(obj)
+            value = obj.dischargeTimeLeft;
+        end
+        function value = getIsCharging(obj)
+            value = obj.isCharging;
+        end
+        function value = getCurrCapacity(obj)
+            value = obj.currCapacity;
+        end
+        function value = getCurrPower(obj)
+            value = obj.currPower;
+        end
+        function value = getProjectedPower(obj)
+            value = obj.chargeTrace(2,translateIndex(obj,'d->c'));
+        end
+        function value = getCurrTraceIndex(obj)
+            value = obj.currTraceIndex;
+        end
+        
+        function obj = setType(obj,value)
+            obj.type = value;
+        end
+        function obj = setChargeTrace(obj,value)
+            obj.chargeTrace = value;
+        end
+        function obj = setDischargeTrace(obj,value)
+            obj.dischargeTrace = value;
+        end
+        function obj = setChargeTime(obj,value)
+            obj.chargeTime = value;
+        end
+        function obj = setDischargeTime(obj,value)
+            obj.dischargeTime = value;
+        end
+        function obj = setChargeTimeLeft(obj,value)
+            obj.chargeTimeLeft = value;
+        end
+        function obj = setDischargeTimeLeft(obj,value)
+            obj.dischargeTimeLeft = value;
+        end
+        function obj = setIsCharging(obj,value)
+            obj.isCharging = value;
+        end
+        function obj = setCurrCapacity(obj,value)
+            obj.currCapacity = value;
+        end
+        function obj = setCurrPower(obj,value)
+            obj.currPower = value;
+        end
+        function obj = setCurrTraceIndex(obj,value)
+            obj.currTraceIndex = value;
+        end
+    end
+end

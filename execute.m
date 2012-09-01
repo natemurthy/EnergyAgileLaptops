@@ -1,0 +1,75 @@
+% run execute.m after running intialize.m
+nRuns = 120;
+dependence = zeros(1,nRuns);
+scaledIMV = zeros(1,nRuns);
+
+forest=[.1328 .5430 .1328];
+
+% moving averages
+movingAvgSolarTraces_1hr=zeros(96,120); % prediction
+for r=1:120
+    movingAvgSolarTraces_1hr(:,r)=smooth(solarTraces(:,r),4);
+end
+
+movingAvgSolarTraces_2hr=zeros(96,120); % volatility benchmark
+for r=1:120
+    movingAvgSolarTraces_2hr(:,r)=smooth(solarTraces(:,r),8);
+end
+
+persistence = false;
+movingAvg = false;
+oracle = true;
+
+
+for r=1:nRuns
+    [zone,a, m] = initializeDevices(zone,r);
+    p_supply = getVarSupplyAll(zone);
+    figure(3); plot(p_supply(:,r),'Color',[1 0.5 0.2],'LineWidth',2); title(r);
+    mCells{1} = m;
+    %init
+    load(1) = aggrDeviceLoad(zone,m);
+    totalCount(1) = totalDeviceCount(zone,m);
+    pluggedCount(1) = pluggedDeviceCount(zone,m);
+    gridDepends(1) = load(1) - p_supply(1,r);
+    if p_supply(1,r) <= 0
+        unscaledIMV(1) = abs(movingAvgSolarTraces_2hr(1,r) - 0);
+    else
+        unscaledIMV(1) = abs(movingAvgSolarTraces_2hr(1,r) - p_supply(1,r));
+    end
+    for s=2:nSteps
+        if (persistence)
+            [a,m]=stepZone(zone,r,s,m,15,true,p_supply(s-1,r));
+        end
+        if (movingAvg)
+            [a,m]=stepZone(zone,r,s,m,15,true,movingAvgSolarTraces_1hr(s,r));
+        end
+        if (oracle)
+            [a,m]=stepZone(zone,r,s,m,15,true,p_supply(s,r));
+        end
+        mCells{s} = m;
+        figure(3); load(s) = aggrDeviceLoad(zone,m); hold on; plot(load,'LineWidth',2);
+        figure(4); totalCount(s) = totalDeviceCount(zone,m); hold on; plot(totalCount,'LineWidth',2,'Color','black');
+        pluggedCount(s) = pluggedDeviceCount(zone,m); hold on; plot(pluggedCount, 'LineWidth',2,'Color',forest,'LineStyle',':');
+        if p_supply(s,r) < load(s)
+            if p_supply(s,r) <= 0
+                gridDepends(s) = load(s);
+            else
+                gridDepends(s) = load(s) - p_supply(s,r);
+            end
+        else
+            gridDepends(s) = 0;
+        end
+        if p_supply(s,r) <= 0
+            unscaledIMV(s) = abs(movingAvgSolarTraces_2hr(1,r) - 0);
+        else
+            unscaledIMV(s) = abs(movingAvgSolarTraces_2hr(s,r) - p_supply(s,r));
+        end
+        %pause(.1);
+    end
+    scaledIMV(r) = getScaledIMV(zone,mean(unscaledIMV),p_supply(:,r),load');
+    dependence(r) = getTotalEnergy(zone,gridDepends)/getTotalEnergy(zone,load');
+    %pause(.5);
+    figure(3); clf; figure(4); clf;
+    clear load totalCount pluggedCount gridDepends;
+    %clear unscaledIMV;
+end
